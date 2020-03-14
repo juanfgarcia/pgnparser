@@ -24,6 +24,7 @@ import (
 	"log"
 	"math"
 	"regexp"
+	"strconv"
 )
 
 // globals
@@ -89,6 +90,9 @@ const (
 type PgnBoard struct {
 	squares      [64]int // contents of each square
 	wking, bking int     // location of the white and black king
+	wkcastling, wqcastling bool	// white king and queen side castling ability
+	bkcastling, bqcastling bool	// black king and queen side castling ability
+	turn	int	// 1 if play's white, -1 if play's black
 }
 
 // Functions
@@ -557,7 +561,11 @@ func InitPgnBoard() (board PgnBoard) {
 			BPAWN, BPAWN, BPAWN, BPAWN, BPAWN, BPAWN, BPAWN, BPAWN,
 			BROOK, BKNIGHT, BBISHOP, BQUEEN, BKING, BBISHOP, BKNIGHT, BROOK},
 		4,  // initial location of the white king
-		60} // initial location of the black king
+		60, // initial location of the black king
+		true, true, // initial white king and queen side castling ability
+		true, true, // initial black king and queen side castling ability
+		1 } // initial turn 
+		 
 	return
 }
 
@@ -899,6 +907,10 @@ func (board *PgnBoard) UpdateBoard(move PgnMove, showmoves bool) {
 
 	if reTextualMove.MatchString(move.moveValue) {
 
+
+		// update turn
+		board.turn = -1*(move.color)
+		
 		// get the different parts of this move necessary to reproduce
 		// it on the board
 		matches := reTextualMove.FindStringSubmatch(move.moveValue)
@@ -909,15 +921,32 @@ func (board *PgnBoard) UpdateBoard(move PgnMove, showmoves bool) {
 		// }
 
 		if matches[6] == "O-O" {
-
+			
+			// Update castling ability
+			if board.turn == 1 {
+				board.wkcastling = false
+				board.wqcastling = false
+			} else if board.turn == -1 {
+				board.bkcastling = false
+				board.bqcastling = false
+			}
 			// -- Short castling
 			board.updateShortCastling(move.color)
 		} else if matches[6] == "O-O-O" {
 
+			// Update castling ability
+			if board.turn == 1 {
+				board.wkcastling = false
+				board.wqcastling = false
+			} else if board.turn == -1 {
+				board.bkcastling = false
+				board.bqcastling = false
+			}
+
 			// -- Long castling
 			board.updateLongCastling(move.color)
 		} else {
-
+			
 			// -- Other moves
 
 			// get the square from which the move was originated
@@ -968,6 +997,53 @@ func (board *PgnBoard) UpdateBoard(move PgnMove, showmoves bool) {
 						}
 					}
 				}
+				
+				// -- check for the castling ability
+				
+				// Check if white haven't castled yet
+				if (board.wkcastling || board.wqcastling){
+					// If king is moved then no castling is possible
+					if getPieceIndex(matches[1]) == WKING {
+						board.wkcastling, board.wqcastling = false, false
+					
+					}else if ( getPieceIndex(matches[1]) == WROOK &&
+						origin == 63 ) { 
+						// if king side rook is moved 
+						// then no king side castling is possible
+						board.wkcastling = false
+	
+					} else if getPieceIndex(matches[1]) == WROOK &&
+						origin == 56 {
+
+						// if queen side rook is moved 
+						// then no king side castling is possible
+						board.wqcastling = false
+					}
+				}
+
+				// Check if black haven't castled yet
+				if (board.bkcastling || board.bqcastling){
+					// If king is moved then no castling is possible
+					if matches[1]== "K" && move.color < 0 {
+						board.bkcastling, board.bqcastling = false, false
+					
+					}else if getPieceIndex(matches[1]) == BROOK &&
+						origin == 7 { 
+						// if king side rook is moved 
+						// then no king side castling is possible
+
+						board.bkcastling = false
+	
+					} else if getPieceIndex(matches[1]) == WROOK && 
+						origin == 0 {
+
+						// if queen side rook is moved 
+						// then no king side castling is possible
+						
+						board.wqcastling = false
+					}
+				}
+						
 			}
 		}
 	} else {
@@ -993,6 +1069,96 @@ func (board PgnBoard) String() (output string) {
 		output += fmt.Sprintf(" %v", string('a'+column))
 	}
 	return output
+}
+
+// Return FEN string of the board
+func (board PgnBoard) GetFen() (fen string){
+	fen = ""
+
+	// Append board pieces and blanks	
+	for i := 7; i>=0; i-- {
+		empty_squares := 0
+	
+		for j := 0; j<=7; j++{
+			square := board.squares[(i*8+j)]
+
+			switch square{
+			case BLANK:
+				empty_squares++
+			case WPAWN:
+				fen +="P"
+			case BPAWN:
+				fen += "p" 
+			case WKNIGHT:
+				fen += "N" 
+			case BKNIGHT:
+				fen += "n" 
+			case WBISHOP:
+				fen += "B" 
+			case BBISHOP:
+				fen += "b" 
+			case WROOK:
+				fen += "R" 
+			case BROOK:
+				fen += "r" 
+			case WQUEEN:
+				fen += "Q" 
+			case BQUEEN:
+				fen += "q" 
+			case WKING:
+				fen += "K" 
+			case BKING:
+				fen += "k" 
+			}
+
+			// If there is empty squares and next isn't a BLANK
+			// or it's the last square in the row
+			// append the number of empty squares
+			if empty_squares != 0 && ( board.squares[(i*8+j+1)] != BLANK || j == 7 ){
+				fen += strconv.Itoa(empty_squares)
+				empty_squares = 0
+			}
+		}
+		if i!=0{
+			fen += "/"
+		}
+	}
+
+	// Append side to move
+	if board.turn == 1 {
+		fen += " w "
+	} else if board.turn == -1 {
+		fen += " b "
+	}
+
+	//Append white castling ability
+	// K for white side castling, Q for queen side 
+	// and - for none of both
+	if board.wkcastling {
+		fen += "K"
+	}
+	if board.wqcastling {
+		fen += "Q"
+	}
+	
+	//Append black castling ability
+	// k for white side castling, q for queen side 
+	// and - for none of both
+	if board.bkcastling {
+		fen += "k"
+	}
+	if board.bqcastling {
+		fen += "q"
+	}
+	
+	if !(board.wkcastling || board.wqcastling ||
+		board.bkcastling || board.bqcastling ){
+			fen += "-"
+		}
+
+
+	
+	return
 }
 
 /* Local Variables: */
