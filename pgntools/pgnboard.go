@@ -1114,7 +1114,7 @@ func (board PgnBoard) GetFen() (fen string){
 			// If there is empty squares and next isn't a BLANK
 			// or it's the last square in the row
 			// append the number of empty squares
-			if empty_squares != 0 && ( board.squares[(i*8+j+1)] != BLANK || j == 7 ){
+			if empty_squares != 0 && (j == 7 || board.squares[(i*8+j+1)] != BLANK ){
 				fen += strconv.Itoa(empty_squares)
 				empty_squares = 0
 			}
